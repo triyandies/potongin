@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Potong.in – Temukan momen terbaik dari video YouTube</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef1f6;--ink:#14213d;--mute:#5b6781;--line:#cfd6e4;--card:#fff;--hot:#e5383b;--hot-d:#b92326}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 "Instrument Sans",system-ui,sans-serif}
+main{max-width:880px;margin:0 auto;padding:48px 20px 80px}
+h1{font:800 clamp(2.2rem,6vw,3.8rem)/1.02 "Bricolage Grotesque",sans-serif;letter-spacing:-.03em;margin:0 0 14px}
+.sub{color:var(--mute);max-width:56ch;margin:0 0 28px}
+form{display:flex;gap:10px;flex-wrap:wrap}
+input[type=url]{flex:1 1 320px;padding:14px 16px;border:2px solid var(--ink);border-radius:10px;font:inherit;background:#fff}
+button{font:600 1rem "Instrument Sans",sans-serif;cursor:pointer;border:0;border-radius:10px;padding:14px 22px;background:var(--hot);color:#fff}
+button:hover{background:var(--hot-d)}
+button:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.opts{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0 0;color:var(--mute);font-size:.92rem}
+.opts select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid var(--line)}
+#status{margin:28px 0 0;color:var(--mute)}
+#status.err{color:var(--hot-d);font-weight:600}
+#result{margin-top:32px}
+.bar{position:relative;height:34px;background:var(--ink);border-radius:8px;overflow:hidden}
+.seg{position:absolute;top:4px;bottom:4px;background:var(--hot);border-radius:4px;opacity:.9;border:0;padding:0;cursor:pointer;min-width:6px}
+.seg:hover,.seg.on{background:#fff}
+.barcap{display:flex;justify-content:space-between;color:var(--mute);font-size:.85rem;margin:6px 0 26px}
+.clip{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+.clip.on{border-color:var(--hot);box-shadow:0 0 0 2px var(--hot)}
+.head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.clip h2{font:800 1.25rem/1.2 "Bricolage Grotesque",sans-serif;margin:0}
+.score{font:800 1.5rem "Bricolage Grotesque",sans-serif;color:var(--hot)}
+.meta{color:var(--mute);font-size:.92rem;margin:6px 0 12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions button{padding:9px 14px;font-size:.9rem;background:var(--ink)}
+.actions button.ghost{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+.player{margin-top:14px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000}
+.player iframe{width:100%;height:100%;border:0}
+@media(prefers-reduced-motion:no-preference){.clip{transition:box-shadow .15s}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Temukan momen terbaik dari video YouTube</h1>
+  <p class="sub">Tempel link video panjang. AI membaca transkrip dan memilih bagian paling kuat untuk dijadikan Shorts, lengkap dengan timestamp dan judul.</p>
+
+  <form id="f">
+    <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=..." required aria-label="Link YouTube">
+    <button id="go" type="submit">Cari momen</button>
+  </form>
+  <div class="opts">
+    <label>Jumlah klip <select id="count"><option>3</option><option selected>6</option><option>10</option></select></label>
+    <label>Durasi <select id="len"><option value="15-30">15–30 detik</option><option value="20-60" selected>20–60 detik</option><option value="45-90">45–90 detik</option></select></label>
+  </div>
+
+  <p id="status" role="status"></p>
+  <section id="result" hidden>
+    <div class="bar" id="bar"></div>
+    <div class="barcap"><span>0:00</span><span id="tot"></span></div>
+    <div id="list"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const mmss = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+$("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const [minLen, maxLen] = $("len").value.split("-").map(Number);
+  $("go").disabled = true;
+  $("status").className = "";
+  $("status").textContent = "Membaca transkrip dan mencari momen terbaik… biasanya 10–30 detik.";
+  $("result").hidden = true;
+  try {
+    const r = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: $("url").value, count: +$("count").value, minLen, maxLen }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Terjadi kesalahan.");
+    render(d);
+    $("status").textContent = d.clips.length + " momen ditemukan, diurutkan dari skor tertinggi.";
+  } catch (err) {
+    $("status").className = "err";
+    $("status").textContent = err.message;
+  } finally {
+    $("go").disabled = false;
+  }
+});
+
+function render({ id, total, clips }) {
+  $("tot").textContent = mmss(total);
+  $("bar").innerHTML = clips.map((c, i) =>
+    `<button class="seg" data-i="${i}" title="${esc(c.title)}" aria-label="Klip ${i + 1}: ${esc(c.title)}" style="left:${c.start / total * 100}%;width:${(c.end - c.start) / total * 100}%"></button>`).join("");
+  $("list").innerHTML = clips.map((c, i) => `
+    <article class="clip" id="c${i}">
+      <div class="head"><h2>${esc(c.title)}</h2><span class="score" aria-label="Skor">${c.score}</span></div>
+      <p class="meta">${mmss(c.start)} – ${mmss(c.end)} · ${c.end - c.start} detik<br>${esc(c.reason)}</p>
+      <div class="actions">
+        <button data-play="${i}">Putar klip</button>
+        <button class="ghost" data-copy="${i}">Salin timestamp</button>
+        <a href="https://www.youtube.com/watch?v=${id}&t=${c.start}s" target="_blank" rel="noopener"><button class="ghost" type="button">Buka di YouTube</button></a>
+      </div>
+      <div id="p${i}"></div>
+    </article>`).join("");
+  $("result").hidden = false;
+
+  const pick = (i) => document.querySelectorAll(".clip").forEach((el, k) => {
+    el.classList.toggle("on", k === i);
+    document.querySelectorAll(".seg")[k].classList.toggle("on", k === i);
+  });
+  $("bar").onclick = (e) => {
+    const s = e.target.closest(".seg"); if (!s) return;
+    const i = +s.dataset.i; pick(i); $("c" + i).scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  $("list").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.play != null) {
+      const i = +b.dataset.play, c = clips[i]; pick(i);
+      $("p" + i).innerHTML = `<div class="player"><iframe allow="autoplay; encrypted-media" allowfullscreen src="https://www.youtube.com/embed/${id}?start=${c.start}&end=${c.end}&autoplay=1&rel=0"></iframe></div>`;
+    }
+    if (b.dataset.copy != null) {
+      const c = clips[+b.dataset.copy];
+      navigator.clipboard.writeText(`${mmss(c.start)} - ${mmss(c.end)} | ${c.title}`);
+      b.textContent = "Tersalin";
+      setTimeout(() => (b.textContent = "Salin timestamp"), 1500);
+    }
+  };
+}
+</script>
+</body>
+</html>
