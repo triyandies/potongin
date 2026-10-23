@@ -11,8 +11,8 @@ module.exports = async function handler(req, res) {
   const { url, count = 6, minLen = 20, maxLen = 60 } = req.body || {};
   const id = getVideoId(url);
   if (!id) return res.status(400).json({ error: "Link YouTube tidak valid." });
-  if (!process.env.ANTHROPIC_API_KEY)
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY belum diatur di Vercel." });
+  if (!process.env.GEMINI_API_KEY)
+    return res.status(500).json({ error: "GEMINI_API_KEY belum diatur di Vercel." });
 
   let items;
   try {
@@ -38,22 +38,28 @@ Transkrip:
 ${lines}`;
 
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-5-5",
-        max_tokens: 2000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+    const r = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": process.env.GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            maxOutputTokens: 4000,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      }
+    );
     const data = await r.json();
-    if (!r.ok) return res.status(502).json({ error: data?.error?.message || "Gagal menghubungi Claude." });
-    const text = data.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    if (!r.ok) return res.status(502).json({ error: data?.error?.message || "Gagal menghubungi Gemini." });
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const text = parts.map((p) => p.text || "").join("");
     const clips = JSON.parse(text.replace(/```json|```/g, "").trim())
       .map((c) => ({
         start: Math.max(0, Math.floor(c.start)),
